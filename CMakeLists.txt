@@ -201,4 +201,4 @@ include_directories(
 # Planner node
 add_executable(planner src/planner.cpp)
 target_link_libraries(planner ${catkin_LIBRARIES})
-add_dependencies(planner auto_nav_planner_generate_messages_cpp)
+# add_dependencies(planner auto_nav_planner_generate_messages_cpp)
