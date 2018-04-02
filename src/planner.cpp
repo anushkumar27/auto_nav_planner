@@ -20,11 +20,17 @@ void dest_pose_cb(const geometry_msgs::PoseStamped::ConstPtr& msg){
 	dest_pose = *msg;
 }
 
+// CB for current position of bot
+geometry_msgs::PoseStamped curr_pose;
+void curr_pose_cb(const geometry_msgs::PoseStamped::ConstPtr& msg) {
+	curr_pose = *msg;
+}
+
 // The money function
-bool path_planner(const std::vector<float> &distances, const geometry_msgs::PoseStamped &msg, geometry_msgs::PoseStamped &result) {
-	result.pose.position.x = msg.pose.position.x;
-	result.pose.position.y = msg.pose.position.y;
-	result.pose.position.z = msg.pose.position.z;
+bool path_planner(const std::vector<float> &distances, const geometry_msgs::PoseStamped &final_dest, const geometry_msgs::PoseStamped &curr_pose, geometry_msgs::PoseStamped &result) {
+	result.pose.position.x = final_dest.pose.position.x;
+	result.pose.position.y = final_dest.pose.position.y;
+	result.pose.position.z = final_dest.pose.position.z;
 	return true;
 }
 
@@ -36,12 +42,15 @@ int main(int argc, char **argv) {
 	ros::NodeHandle nh;
 
 	// SUBSCRIBER
-	// To fetch the current state of the FCU
+	// To fetch the RPLidar data
 	ros::Subscriber oa_data_sub = nh.subscribe<std_msgs::Float32MultiArray>
 			("oa/data", 10, oa_data_cb);
 	// To fetch the dest from the commander node
 	ros::Subscriber dest_pose_sub = nh.subscribe<geometry_msgs::PoseStamped>
 			("auto_nav/planner/dest/pose", 10, dest_pose_cb);
+	// To fetch the current position of the bot
+	ros::Subscriber curr_pose_sub = nh.subscribe<geometry_msgs::PostStamped>
+			("mavros/local_position/pose", 10, curr_pose_cb);
 
 	// PUBLISHER
 	// To publish the raw destination pose to the FCU
@@ -60,8 +69,8 @@ int main(int argc, char **argv) {
 	std::fill(distances.begin(), distances.end(), std::numeric_limits<float>::infinity());
 	
 	while(ros::ok()) {
-		// Get temp destination to go to
-		path_planner(distances, dest_pose, temp_dest_pose);
+		// Get temp destination to go to (path planning)
+		path_planner(distances, dest_pose, curr_pose, temp_dest_pose);
 		// Send command to bridge
 		pos_pub.publish(temp_dest_pose);
 
