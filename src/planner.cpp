@@ -68,6 +68,29 @@ int main(int argc, char **argv) {
 	std::vector<float> distances(360);
 	std::fill(distances.begin(), distances.end(), std::numeric_limits<float>::infinity());
 	
+	// Launch Order:
+	// 1. Gazebo
+	//		1.1 Quad IMU
+	//		1.2 Optical Flow
+	// 		1.3 RPLidar
+	// 2. OA
+	//		2.1 Publish filtered lidar data
+	// 3. Planner
+	// 4. Bridge
+	//		4.1 Wait for dest - wil not arm or mode switch
+	// 		4.2 Arm and Switch Mode -> After receiving dest
+	
+	// TODO: 
+	// 1. Add loop to buffer the distance(rplidar) for 5 seconds
+	// 2. Add a global param to store the size of the quad, to decide reached or not
+	// 3. Add a global param to safety boundary around the obstacle (OA)
+
+	// Pre-Checks:
+	// 1. RPLidar Data
+	//		1.1. Take-off only if there is a free path
+	// 2. Commander Data (Bridge)
+	// 		wait for data
+
 	while(ros::ok()) {
 		// Get temp destination to go to (path planning)
 		path_planner(distances, dest_pose, curr_pose, temp_dest_pose);
