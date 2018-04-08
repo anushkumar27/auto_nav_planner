@@ -12,6 +12,7 @@
 
 float ob_safety_buffer;
 float size_of_bot;
+float max_range;
 
 // bools to indicate the data has been received from callback
 bool oa_data_check = false;
@@ -36,8 +37,11 @@ geometry_msgs::PoseStamped curr_pose;
 void curr_pose_cb(const geometry_msgs::PoseStamped::ConstPtr& msg) {
 	curr_pose = *msg;
 	float temp = curr_pose.pose.position.x;
-	curr_pose.pose.position.x = curr_pose.pose.position.y;
-	curr_pose.pose.position.y = -1.0f * temp;
+	// curr_pose.pose.position.x = curr_pose.pose.position.y;
+	// curr_pose.pose.position.y = -1.0f * temp;
+	// WARNING: TEMPORARY INSANITY
+	curr_pose.pose.position.x = -1.0f * curr_pose.pose.position.y;	
+	curr_pose.pose.position.y = temp;
 }
 
 // Utility functions
@@ -55,8 +59,13 @@ int get_rplidar_index(const geometry_msgs::PoseStamped &a, const geometry_msgs::
 	return deg + 270;
 }
 
+// INSANITY
+int infinity_case_index = -1;
 // The money function
 bool path_planner(const std::vector<float> &distances, const geometry_msgs::PoseStamped &final_dest, const geometry_msgs::PoseStamped &curr_pose, geometry_msgs::PoseStamped &result) {
+	// Reset index
+	int infinity_case_index = -1;
+	
 	// Not checking for obstacles in z directions, directly going
 	// TODO: Takeoff first
 	result.pose.position.z = final_dest.pose.position.z;
@@ -98,8 +107,10 @@ bool path_planner(const std::vector<float> &distances, const geometry_msgs::Pose
 		// DO PATH PLANNING
 		auto temp_dest_ray = std::max_element(distances.begin(), distances.end());
 		int temp_dest_index = temp_dest_ray - distances.begin();
-		result.pose.position.x = distances[temp_dest_index] * std::sin(temp_dest_index * (M_PI/180.0f)) + curr_pose.pose.position.x;
-		result.pose.position.y = distances[temp_dest_index] * std::cos(temp_dest_index * (M_PI/180.0f)) + curr_pose.pose.position.y;
+		// Complex ternary is to protect against multiplying by inf
+		if(distances[temp_dest_index] > max_range) infinity_case_index = temp_dest_index;
+		result.pose.position.x = ((distances[temp_dest_index] > max_range) ? max_range * 2 : distances[temp_dest_index]) * std::sin(temp_dest_index * (M_PI/180.0f)) + curr_pose.pose.position.x;
+		result.pose.position.y = ((distances[temp_dest_index] > max_range) ? max_range * 2 : distances[temp_dest_index]) * std::cos(temp_dest_index * (M_PI/180.0f)) + curr_pose.pose.position.y;
 	}
 	
 	return false;
@@ -112,6 +123,7 @@ int main(int argc, char **argv) {
 	// NodeHandle is the main access point to communications with the ROS system.
 	ros::NodeHandle nh;
 
+	nh.param<float>("max_obstacle_range", max_range, 5.0f);
 	nh.param<float>("obstacle_safety_buffer", ob_safety_buffer, 0.3f);
 	nh.param<float>("size_of_bot", size_of_bot, 1.0f);
 
@@ -183,22 +195,34 @@ int main(int argc, char **argv) {
 	while(ros::ok()) {
 
 		// Get temp destination to go to (path planning)
-		ROS_INFO("FLAG: %d", dist_bw_points(curr_pose, temp_dest_pose) > (size_of_bot * 0.5));
-		ROS_INFO("Target Height: %f", dest_pose.pose.position.z);
-		ROS_INFO("Curr Height: %f", curr_pose.pose.position.z);
+		ROS_INFO("Dist to temp dest: %f", dist_bw_points(curr_pose, temp_dest_pose));
+		ROS_INFO("Target pos: [%f %f %f]", dest_pose.pose.position.x, dest_pose.pose.position.y, dest_pose.pose.position.z);
+		ROS_INFO("Curr pos: [%f %f %f]", curr_pose.pose.position.x, curr_pose.pose.position.y, curr_pose.pose.position.z);
 		ROS_INFO("Publishing [%f %f %f]", temp_dest_pose.pose.position.x, temp_dest_pose.pose.position.y, temp_dest_pose.pose.position.z);
+		
+		ROS_INFO("Infinity case index: %d", infinity_case_index);
+		if(infinity_case_index != -1) {
+			ROS_WARN("Infinity case dist: %f", distances[infinity_case_index]);
+		}
 
-		pos_pub.publish(temp_dest_pose);
-		path_planner(distances, dest_pose, curr_pose, temp_dest_pose);
-		// if(dist_bw_points(curr_pose, temp_dest_pose) > size_of_bot * 0.5) {
-		// 	// Send command to bridge
-		// 	ROS_INFO("Publishing [%f %f %f]", temp_dest_pose.pose.position.x, temp_dest_pose.pose.position.y, temp_dest_pose.pose.position.z);
-		// 	pos_pub.publish(temp_dest_pose);
-		// }
-		// else {
-		// 	ROS_INFO("Taking new point");
-		// 	path_planner(distances, dest_pose, curr_pose, temp_dest_pose);
-		// }
+		if(infinity_case_index != -1 && distances[infinity_case_index] > 0.5f) {
+			// Send command to bridge
+			// ROS_INFO("Publishing [%f %f %f]", temp_dest_pose.pose.position.x, temp_dest_pose.pose.position.y, temp_dest_pose.pose.position.z);
+			ROS_WARN("Going to infinity and trying to stop");
+			pos_pub.publish(temp_dest_pose);
+		}
+		else if(infinity_case_index == -1 && dist_bw_points(curr_pose, temp_dest_pose) > size_of_bot * 0.5) {
+			// Send command to bridge
+			// ROS_INFO("Publishing [%f %f %f]", temp_dest_pose.pose.position.x, temp_dest_pose.pose.position.y, temp_dest_pose.pose.position.z);
+			pos_pub.publish(temp_dest_pose);
+		}
+		else {
+			ROS_INFO("Taking new point");
+			path_planner(distances, dest_pose, curr_pose, temp_dest_pose);
+			pos_pub.publish(temp_dest_pose);
+		}
+
+		ROS_INFO(" ");
 
 		if(!oa_data.data.empty()) distances = std::move(oa_data.data);
 		ros::spinOnce();
