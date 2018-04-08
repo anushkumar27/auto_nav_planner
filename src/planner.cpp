@@ -7,17 +7,28 @@
 #include <std_msgs/Float32MultiArray.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <vector>
+#include <cmath>
+#include <algorithm>
+
+float ob_safety_buffer;
+float size_of_bot;
+
+// bools to indicate the data has been received from callback
+bool oa_data_check = false;
+bool dest_pose_check = false;
 
 // CB for RPLidar data
 std_msgs::Float32MultiArray oa_data;
 void oa_data_cb(const std_msgs::Float32MultiArray::ConstPtr& msg) {
 	oa_data = *msg;
+	oa_data_check = true;
 }
 
 // CB for Commander dest pose
 geometry_msgs::PoseStamped dest_pose;
 void dest_pose_cb(const geometry_msgs::PoseStamped::ConstPtr& msg){
 	dest_pose = *msg;
+	dest_pose_check = true;
 }
 
 // CB for current position of bot
@@ -26,12 +37,62 @@ void curr_pose_cb(const geometry_msgs::PoseStamped::ConstPtr& msg) {
 	curr_pose = *msg;
 }
 
+// Utility functions
+float dist_bw_points(const geometry_msgs::PoseStamped &a, const geometry_msgs::PoseStamped &b) {
+	return std::sqrt(std::pow(a.pose.position.x - b.pose.position.x, 2) + std::pow(a.pose.position.y - b.pose.position.y ,2));
+}
+
+float angle_bw_points(const geometry_msgs::PoseStamped &a, const geometry_msgs::PoseStamped &b) {
+	return std::asin((b.pose.position.y - a.pose.position.y) / dist_bw_points(a, b)) * 
+		(180.0f/M_PI);
+}
+
+int get_rplidar_index(const geometry_msgs::PoseStamped &a, const geometry_msgs::PoseStamped &b) {
+	int deg = (int) angle_bw_points(a, b);
+	return deg + 270;
+}
+
 // The money function
 bool path_planner(const std::vector<float> &distances, const geometry_msgs::PoseStamped &final_dest, const geometry_msgs::PoseStamped &curr_pose, geometry_msgs::PoseStamped &result) {
-	result.pose.position.x = final_dest.pose.position.x;
-	result.pose.position.y = final_dest.pose.position.y;
+	// Not checking for obstacles in z directions, directly going
+	// TODO: Takeoff first
 	result.pose.position.z = final_dest.pose.position.z;
-	return true;
+
+	// Check if final_dest == curr_pose
+	// Should be within half of size of quad
+	if(dist_bw_points(curr_pose, final_dest) <= size_of_bot * 0.5) {
+		ROS_INFO("Reached destination [%f %f %f]", curr_pose.pose.position.x, curr_pose.pose.position.y, curr_pose.pose.position.z);
+		result.pose.position.x = final_dest.pose.position.x;
+		result.pose.position.y = final_dest.pose.position.y;
+		return true;
+	}
+
+	// 1. Find dist to dest from curr_pose
+	float dist_to_dest = dist_bw_points(curr_pose, final_dest);
+
+	// 2. Find index of rplidar reading to final dest direction
+	int index = get_rplidar_index(curr_pose, final_dest);
+
+	// 3. Compare
+	if(distances[index] > dist_to_dest) {
+		// GO TO DEST
+		result.pose.position.x = final_dest.pose.position.x;
+		result.pose.position.y = final_dest.pose.position.y;
+	}
+	else if(distances[index] + ob_safety_buffer > dist_to_dest) {
+		// GO TO JUST BEFORE THE DEST
+		result.pose.position.x = final_dest.pose.position.x;
+		result.pose.position.y = final_dest.pose.position.y;
+	}
+	else {
+		// DO PATH PLANNING
+		auto temp_dest_ray = std::max_element(distances.begin(), distances.end());
+		int temp_dest_index = temp_dest_ray - distances.begin();
+		result.pose.position.x = distances[temp_dest_index] * std::sin(temp_dest_index * (M_PI/180.0f)) + curr_pose.pose.position.x;
+		result.pose.position.y = distances[temp_dest_index] * std::cos(temp_dest_index * (M_PI/180.0f)) + curr_pose.pose.position.y;
+	}
+	
+	return false;
 }
 
 int main(int argc, char **argv) {   
@@ -41,6 +102,9 @@ int main(int argc, char **argv) {
 	// NodeHandle is the main access point to communications with the ROS system.
 	ros::NodeHandle nh;
 
+	nh.param<float>("obstacle_safety_buffer", ob_safety_buffer, 0.0f);
+	nh.param<float>("size_of_bot", size_of_bot, 1.0f);
+
 	// SUBSCRIBER
 	// To fetch the RPLidar data
 	ros::Subscriber oa_data_sub = nh.subscribe<std_msgs::Float32MultiArray>
@@ -49,7 +113,7 @@ int main(int argc, char **argv) {
 	ros::Subscriber dest_pose_sub = nh.subscribe<geometry_msgs::PoseStamped>
 			("auto_nav/planner/dest/pose", 10, dest_pose_cb);
 	// To fetch the current position of the bot
-	ros::Subscriber curr_pose_sub = nh.subscribe<geometry_msgs::PostStamped>
+	ros::Subscriber curr_pose_sub = nh.subscribe<geometry_msgs::PoseStamped>
 			("mavros/local_position/pose", 10, curr_pose_cb);
 
 	// PUBLISHER
@@ -91,11 +155,31 @@ int main(int argc, char **argv) {
 	// 2. Commander Data (Bridge)
 	// 		wait for data
 
+	// Check for critical data
 	while(ros::ok()) {
+		if(oa_data_check && dest_pose_check){
+			ROS_INFO("OA DATA and DESTINATION Received");
+			break;
+		}
+		else {
+			ROS_WARN("OA DATA or DESTINATION Not Received");
+		}
+		ros::spinOnce();
+		rate.sleep();
+	}
+
+	// Get initial point to go to
+	path_planner(distances, dest_pose, curr_pose, temp_dest_pose);
+	while(ros::ok()) {
+
 		// Get temp destination to go to (path planning)
-		path_planner(distances, dest_pose, curr_pose, temp_dest_pose);
-		// Send command to bridge
-		pos_pub.publish(temp_dest_pose);
+		if(dist_bw_points(curr_pose, temp_dest_pose) > size_of_bot * 0.5) {
+			// Send command to bridge
+			pos_pub.publish(temp_dest_pose);
+		}
+		else {
+			path_planner(distances, dest_pose, curr_pose, temp_dest_pose);
+		}
 
 		if(!oa_data.data.empty()) distances = std::move(oa_data.data);
 		ros::spinOnce();
@@ -104,4 +188,3 @@ int main(int argc, char **argv) {
 
 	return 0;
 }
-
