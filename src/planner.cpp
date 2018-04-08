@@ -35,6 +35,9 @@ void dest_pose_cb(const geometry_msgs::PoseStamped::ConstPtr& msg){
 geometry_msgs::PoseStamped curr_pose;
 void curr_pose_cb(const geometry_msgs::PoseStamped::ConstPtr& msg) {
 	curr_pose = *msg;
+	float temp = curr_pose.pose.position.x;
+	curr_pose.pose.position.x = curr_pose.pose.position.y;
+	curr_pose.pose.position.y = -1.0f * temp;
 }
 
 // Utility functions
@@ -57,6 +60,13 @@ bool path_planner(const std::vector<float> &distances, const geometry_msgs::Pose
 	// Not checking for obstacles in z directions, directly going
 	// TODO: Takeoff first
 	result.pose.position.z = final_dest.pose.position.z;
+
+	if(std::fabs(curr_pose.pose.position.z - dest_pose.pose.position.z) > 0.1f) {
+		ROS_INFO("Adjust height");
+		result.pose.position.x = curr_pose.pose.position.x;
+		result.pose.position.y = curr_pose.pose.position.y;
+		return true;
+	}
 
 	// Check if final_dest == curr_pose
 	// Should be within half of size of quad
@@ -102,7 +112,7 @@ int main(int argc, char **argv) {
 	// NodeHandle is the main access point to communications with the ROS system.
 	ros::NodeHandle nh;
 
-	nh.param<float>("obstacle_safety_buffer", ob_safety_buffer, 0.0f);
+	nh.param<float>("obstacle_safety_buffer", ob_safety_buffer, 0.3f);
 	nh.param<float>("size_of_bot", size_of_bot, 1.0f);
 
 	// SUBSCRIBER
@@ -173,13 +183,22 @@ int main(int argc, char **argv) {
 	while(ros::ok()) {
 
 		// Get temp destination to go to (path planning)
-		if(dist_bw_points(curr_pose, temp_dest_pose) > size_of_bot * 0.5) {
-			// Send command to bridge
-			pos_pub.publish(temp_dest_pose);
-		}
-		else {
-			path_planner(distances, dest_pose, curr_pose, temp_dest_pose);
-		}
+		ROS_INFO("FLAG: %d", dist_bw_points(curr_pose, temp_dest_pose) > (size_of_bot * 0.5));
+		ROS_INFO("Target Height: %f", dest_pose.pose.position.z);
+		ROS_INFO("Curr Height: %f", curr_pose.pose.position.z);
+		ROS_INFO("Publishing [%f %f %f]", temp_dest_pose.pose.position.x, temp_dest_pose.pose.position.y, temp_dest_pose.pose.position.z);
+
+		pos_pub.publish(temp_dest_pose);
+		path_planner(distances, dest_pose, curr_pose, temp_dest_pose);
+		// if(dist_bw_points(curr_pose, temp_dest_pose) > size_of_bot * 0.5) {
+		// 	// Send command to bridge
+		// 	ROS_INFO("Publishing [%f %f %f]", temp_dest_pose.pose.position.x, temp_dest_pose.pose.position.y, temp_dest_pose.pose.position.z);
+		// 	pos_pub.publish(temp_dest_pose);
+		// }
+		// else {
+		// 	ROS_INFO("Taking new point");
+		// 	path_planner(distances, dest_pose, curr_pose, temp_dest_pose);
+		// }
 
 		if(!oa_data.data.empty()) distances = std::move(oa_data.data);
 		ros::spinOnce();
