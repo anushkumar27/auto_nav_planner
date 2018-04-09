@@ -60,6 +60,19 @@ int get_rplidar_index(const geometry_msgs::PoseStamped &a, const geometry_msgs::
 
 // Flag for infinity distance case
 int infinity_case_index = -1;
+
+// Angles for left, right, up and down directions
+const int up_angle = 180;
+const int down_angle = 0;
+const int left_angle = 270;
+const int right_angle = 90;
+
+// Flags for left, right, up and down directions
+bool up_allowed = true;
+bool down_allowed = true;
+bool left_allowed = true;
+bool right_allowed = true;
+
 // The money function
 bool path_planner(const std::vector<float> &distances, const geometry_msgs::PoseStamped &final_dest, const geometry_msgs::PoseStamped &curr_pose, geometry_msgs::PoseStamped &result) {
 	// Reset index
@@ -99,14 +112,59 @@ bool path_planner(const std::vector<float> &distances, const geometry_msgs::Pose
 	}
 	else if(distances[index] + ob_safety_buffer > dist_to_dest) {
 		// GO TO JUST BEFORE THE DEST
+		// TODO: Review
 		result.pose.position.x = final_dest.pose.position.x;
 		result.pose.position.y = final_dest.pose.position.y;
 	}
 	else {
 		// DO PATH PLANNING
-		auto temp_dest_ray = std::max_element(distances.begin(), distances.end());
-		int temp_dest_index = temp_dest_ray - distances.begin();
+		// TODO: Make efficient, review
+		std::vector<float> distances_temp(distances);
+		for(int i = 0; i < 360; ++i) {
+			if(!( (i == up_angle && up_allowed) || 
+				(i == down_angle && down_allowed) || 
+				(i == left_angle && left_allowed) || 
+				(i == right_angle && right_allowed) )) {
+				distances_temp[i] = 0;
+			}
+		}
+		auto temp_dest_ray = std::max_element(distances_temp.begin(), distances_temp.end());
+		int temp_dest_index = temp_dest_ray - distances_temp.begin();
+		if(temp_dest_index == up_angle) {
+			ROS_ERROR("Choosing up!");
+			up_allowed = true;
+			down_allowed = false;
+			left_allowed = true;
+			right_allowed = true;
+		}
+		else if(temp_dest_index == down_angle) {
+			ROS_ERROR("Choosing down!");
+			up_allowed = false;
+			down_allowed = true;
+			left_allowed = true;
+			right_allowed = true;
+		}
+		else if(temp_dest_index == left_angle) {
+			ROS_ERROR("Choosing left!");
+			up_allowed = true;
+			down_allowed = true;
+			left_allowed = true;
+			right_allowed = false;
+		}
+		else if(temp_dest_index == right_angle) {
+			ROS_ERROR("Choosing right!");
+			up_allowed = true;
+			down_allowed = true;
+			left_allowed = false;
+			right_allowed = true;
+		}
+		else {
+			ROS_ERROR("temp_dest_index not one of allowed values");
+			exit(1);
+		}
+
 		// Complex ternary is to protect against multiplying by inf
+		// TODO: Clean up
 		if(distances[temp_dest_index] > max_range) infinity_case_index = temp_dest_index;
 		result.pose.position.x = ((distances[temp_dest_index] > max_range) ? max_range * 2 : distances[temp_dest_index]) * std::sin(temp_dest_index * (M_PI/180.0f)) + curr_pose.pose.position.x;
 		result.pose.position.y = ((distances[temp_dest_index] > max_range) ? max_range * 2 : distances[temp_dest_index]) * std::cos(temp_dest_index * (M_PI/180.0f)) + curr_pose.pose.position.y;
@@ -178,7 +236,7 @@ int main(int argc, char **argv) {
 
 	// Check for critical data
 	while(ros::ok()) {
-		if(oa_data_check && dest_pose_check){
+		if(oa_data_check && dest_pose_check) {
 			ROS_INFO("OA DATA and DESTINATION Received");
 			break;
 		}
@@ -204,7 +262,7 @@ int main(int argc, char **argv) {
 			ROS_WARN("Infinity case dist: %f", distances[infinity_case_index]);
 		}
 
-		if(infinity_case_index != -1 && distances[infinity_case_index] > 0.5f) {
+		if(infinity_case_index != -1 && distances[infinity_case_index] > 4.0f) {
 			// Send command to bridge
 			// ROS_INFO("Publishing [%f %f %f]", temp_dest_pose.pose.position.x, temp_dest_pose.pose.position.y, temp_dest_pose.pose.position.z);
 			ROS_WARN("Going to infinity and trying to stop");
@@ -212,7 +270,7 @@ int main(int argc, char **argv) {
 		}
 		else if(infinity_case_index == -1 && dist_bw_points(curr_pose, temp_dest_pose) > size_of_bot * 0.5) {
 			// Send command to bridge
-			// ROS_INFO("Publishing [%f %f %f]", temp_dest_pose.pose.position.x, temp_dest_pose.pose.position.y, temp_dest_pose.pose.position.z);
+			ROS_INFO("Publishing [%f %f %f]", temp_dest_pose.pose.position.x, temp_dest_pose.pose.position.y, temp_dest_pose.pose.position.z);
 			pos_pub.publish(temp_dest_pose);
 		}
 		else {
