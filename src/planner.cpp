@@ -39,7 +39,6 @@ void curr_pose_cb(const geometry_msgs::PoseStamped::ConstPtr& msg) {
 	float temp = curr_pose.pose.position.x;
 	// curr_pose.pose.position.x = curr_pose.pose.position.y;
 	// curr_pose.pose.position.y = -1.0f * temp;
-	// WARNING: TEMPORARY INSANITY
 	curr_pose.pose.position.x = -1.0f * curr_pose.pose.position.y;	
 	curr_pose.pose.position.y = temp;
 }
@@ -59,7 +58,7 @@ int get_rplidar_index(const geometry_msgs::PoseStamped &a, const geometry_msgs::
 	return deg + 270;
 }
 
-// INSANITY
+// Flag for infinity distance case
 int infinity_case_index = -1;
 // The money function
 bool path_planner(const std::vector<float> &distances, const geometry_msgs::PoseStamped &final_dest, const geometry_msgs::PoseStamped &curr_pose, geometry_msgs::PoseStamped &result) {
@@ -67,9 +66,9 @@ bool path_planner(const std::vector<float> &distances, const geometry_msgs::Pose
 	infinity_case_index = -1;
 	
 	// Not checking for obstacles in z directions, directly going
-	// TODO: Takeoff first
 	result.pose.position.z = final_dest.pose.position.z;
 
+	// Takeoff first
 	if(std::fabs(curr_pose.pose.position.z - dest_pose.pose.position.z) > 0.1f) {
 		ROS_INFO("Adjust height");
 		result.pose.position.x = curr_pose.pose.position.x;
