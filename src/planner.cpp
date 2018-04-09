@@ -55,7 +55,7 @@ float angle_bw_points(const geometry_msgs::PoseStamped &a, const geometry_msgs::
 
 int get_rplidar_index(const geometry_msgs::PoseStamped &a, const geometry_msgs::PoseStamped &b) {
 	int deg = (int) angle_bw_points(a, b);
-	return deg + 270;
+	return deg + 90;
 }
 
 // Flag for infinity distance case
