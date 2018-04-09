@@ -64,7 +64,7 @@ int infinity_case_index = -1;
 // The money function
 bool path_planner(const std::vector<float> &distances, const geometry_msgs::PoseStamped &final_dest, const geometry_msgs::PoseStamped &curr_pose, geometry_msgs::PoseStamped &result) {
 	// Reset index
-	int infinity_case_index = -1;
+	infinity_case_index = -1;
 	
 	// Not checking for obstacles in z directions, directly going
 	// TODO: Takeoff first
