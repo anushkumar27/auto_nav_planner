@@ -51,7 +51,7 @@ float dist_bw_points(const geometry_msgs::PoseStamped &a, const geometry_msgs::P
 }
 
 float angle_bw_points(const geometry_msgs::PoseStamped &a, const geometry_msgs::PoseStamped &b) {
-	return std::asin((b.pose.position.y - a.pose.position.y) / dist_bw_points(a, b)) * 
+	return std::acos((b.pose.position.x - a.pose.position.x) / dist_bw_points(a, b)) * 
 		(180.0f/M_PI);
 }
 
@@ -101,10 +101,15 @@ bool path_planner(const std::vector<float> &distances, const geometry_msgs::Pose
 	// 2. Find index of rplidar reading to final dest direction
 	int index = get_rplidar_index(curr_pose, final_dest);
 
+	ROS_INFO("dist_to_dest = %f", dist_to_dest);
+	ROS_INFO("index_to_dest = %d", index);
+	ROS_INFO("dist_to_obs = %f", distances[index]);
+
 	// 3. Compare
 	if(distances[index] > dist_to_dest) {
 		// GO TO DEST
 		// TODO: Handle infinity readings in rplidar
+		ROS_INFO("GOING DIRECTLY TO DEST");
 		result.pose.position.x = final_dest.pose.position.x;
 		result.pose.position.y = final_dest.pose.position.y;
 	}
@@ -256,23 +261,23 @@ int main(int argc, char **argv) {
 	while(ros::ok()) {
 
 		// Get temp destination to go to (path planning)
-		ROS_INFO("Dist to temp dest: %f", dist_bw_points(curr_pose, temp_dest_pose));
-		ROS_INFO("Target pos: [%f %f %f]", dest_pose.pose.position.x, dest_pose.pose.position.y, dest_pose.pose.position.z);
-		ROS_INFO("Curr pos: [%f %f %f]", curr_pose.pose.position.x, curr_pose.pose.position.y, curr_pose.pose.position.z);
-		ROS_INFO("Publishing [%f %f %f]", temp_dest_pose.pose.position.x, temp_dest_pose.pose.position.y, temp_dest_pose.pose.position.z);
+		// ROS_INFO("Dist to temp dest: %f", dist_bw_points(curr_pose, temp_dest_pose));
+		// ROS_INFO("Target pos: [%f %f %f]", dest_pose.pose.position.x, dest_pose.pose.position.y, dest_pose.pose.position.z);
+		// ROS_INFO("Curr pos: [%f %f %f]", curr_pose.pose.position.x, curr_pose.pose.position.y, curr_pose.pose.position.z);
+		// ROS_INFO("Publishing [%f %f %f]", temp_dest_pose.pose.position.x, temp_dest_pose.pose.position.y, temp_dest_pose.pose.position.z);
 
 		if(dist_bw_points(curr_pose, temp_dest_pose) > size_of_bot * 0.5) {
 			// Send command to bridge
-			ROS_INFO("Publishing [%f %f %f]", temp_dest_pose.pose.position.x, temp_dest_pose.pose.position.y, temp_dest_pose.pose.position.z);
+			// ROS_INFO("Publishing [%f %f %f]", temp_dest_pose.pose.position.x, temp_dest_pose.pose.position.y, temp_dest_pose.pose.position.z);
 			pos_pub.publish(temp_dest_pose);
 		}
 		else {
-			ROS_INFO("Taking new point");
+			// ROS_INFO("Taking new point");
 			path_planner(distances, dest_pose, curr_pose, temp_dest_pose);
 			pos_pub.publish(temp_dest_pose);
 		}
 
-		ROS_INFO(" ");
+		// ROS_INFO(" ");
 
 		if(!oa_data.data.empty()) distances = std::move(oa_data.data);
 		ros::spinOnce();
