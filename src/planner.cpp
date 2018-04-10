@@ -10,9 +10,11 @@
 #include <cmath>
 #include <algorithm>
 
+// Constants
 float ob_safety_buffer;
 float size_of_bot;
 float max_range;
+float interval_size;
 
 // bools to indicate the data has been received from callback
 bool oa_data_check = false;
@@ -58,9 +60,6 @@ int get_rplidar_index(const geometry_msgs::PoseStamped &a, const geometry_msgs::
 	return deg + 90;
 }
 
-// Flag for infinity distance case
-int infinity_case_index = -1;
-
 // Angles for left, right, up and down directions
 const int up_angle = 180;
 const int down_angle = 0;
@@ -75,8 +74,6 @@ bool right_allowed = true;
 
 // The money function
 bool path_planner(const std::vector<float> &distances, const geometry_msgs::PoseStamped &final_dest, const geometry_msgs::PoseStamped &curr_pose, geometry_msgs::PoseStamped &result) {
-	// Reset index
-	infinity_case_index = -1;
 	
 	// Not checking for obstacles in z directions, directly going
 	result.pose.position.z = final_dest.pose.position.z;
@@ -107,18 +104,21 @@ bool path_planner(const std::vector<float> &distances, const geometry_msgs::Pose
 	// 3. Compare
 	if(distances[index] > dist_to_dest) {
 		// GO TO DEST
+		// TODO: Handle infinity readings in rplidar
 		result.pose.position.x = final_dest.pose.position.x;
 		result.pose.position.y = final_dest.pose.position.y;
 	}
 	else if(distances[index] + ob_safety_buffer > dist_to_dest) {
 		// GO TO JUST BEFORE THE DEST
 		// TODO: Review
+		// TODO: Add handling for safety buffer
 		result.pose.position.x = final_dest.pose.position.x;
 		result.pose.position.y = final_dest.pose.position.y;
 	}
 	else {
 		// DO PATH PLANNING
 		// TODO: Make efficient, review
+		// TODO: Handle the case where drone is very close to obstacle
 		std::vector<float> distances_temp(distances);
 		for(int i = 0; i < 360; ++i) {
 			if(!( (i == up_angle && up_allowed) || 
@@ -165,9 +165,12 @@ bool path_planner(const std::vector<float> &distances, const geometry_msgs::Pose
 
 		// Complex ternary is to protect against multiplying by inf
 		// TODO: Clean up
-		if(distances[temp_dest_index] > max_range) infinity_case_index = temp_dest_index;
-		result.pose.position.x = ((distances[temp_dest_index] > max_range) ? max_range * 2 : distances[temp_dest_index]) * std::sin(temp_dest_index * (M_PI/180.0f)) + curr_pose.pose.position.x;
-		result.pose.position.y = ((distances[temp_dest_index] > max_range) ? max_range * 2 : distances[temp_dest_index]) * std::cos(temp_dest_index * (M_PI/180.0f)) + curr_pose.pose.position.y;
+		// if(distances[temp_dest_index] > max_range) infinity_case_index = temp_dest_index;
+		// result.pose.position.x = ((distances[temp_dest_index] > max_range) ? max_range * 2 : distances[temp_dest_index]) * std::sin(temp_dest_index * (M_PI/180.0f)) + curr_pose.pose.position.x;
+		// result.pose.position.y = ((distances[temp_dest_index] > max_range) ? max_range * 2 : distances[temp_dest_index]) * std::cos(temp_dest_index * (M_PI/180.0f)) + curr_pose.pose.position.y;
+
+		result.pose.position.x = ((distances[temp_dest_index] > interval_size) ? interval_size : distances[temp_dest_index]) * std::sin(temp_dest_index * (M_PI/180.0f)) + curr_pose.pose.position.x;
+		result.pose.position.y = -1.0f * ((distances[temp_dest_index] > interval_size) ? interval_size : distances[temp_dest_index]) * std::cos(temp_dest_index * (M_PI/180.0f)) + curr_pose.pose.position.y;
 	}
 	
 	return false;
@@ -183,6 +186,7 @@ int main(int argc, char **argv) {
 	nh.param<float>("max_obstacle_range", max_range, 5.0f);
 	nh.param<float>("obstacle_safety_buffer", ob_safety_buffer, 0.3f);
 	nh.param<float>("size_of_bot", size_of_bot, 1.0f);
+	nh.param<float>("interval_size", interval_size, 1.0f);
 
 	// SUBSCRIBER
 	// To fetch the RPLidar data
@@ -256,19 +260,8 @@ int main(int argc, char **argv) {
 		ROS_INFO("Target pos: [%f %f %f]", dest_pose.pose.position.x, dest_pose.pose.position.y, dest_pose.pose.position.z);
 		ROS_INFO("Curr pos: [%f %f %f]", curr_pose.pose.position.x, curr_pose.pose.position.y, curr_pose.pose.position.z);
 		ROS_INFO("Publishing [%f %f %f]", temp_dest_pose.pose.position.x, temp_dest_pose.pose.position.y, temp_dest_pose.pose.position.z);
-		
-		ROS_INFO("Infinity case index: %d", infinity_case_index);
-		if(infinity_case_index != -1) {
-			ROS_WARN("Infinity case dist: %f", distances[infinity_case_index]);
-		}
 
-		if(infinity_case_index != -1 && distances[infinity_case_index] > 4.0f) {
-			// Send command to bridge
-			// ROS_INFO("Publishing [%f %f %f]", temp_dest_pose.pose.position.x, temp_dest_pose.pose.position.y, temp_dest_pose.pose.position.z);
-			ROS_WARN("Going to infinity and trying to stop");
-			pos_pub.publish(temp_dest_pose);
-		}
-		else if(infinity_case_index == -1 && dist_bw_points(curr_pose, temp_dest_pose) > size_of_bot * 0.5) {
+		if(dist_bw_points(curr_pose, temp_dest_pose) > size_of_bot * 0.5) {
 			// Send command to bridge
 			ROS_INFO("Publishing [%f %f %f]", temp_dest_pose.pose.position.x, temp_dest_pose.pose.position.y, temp_dest_pose.pose.position.z);
 			pos_pub.publish(temp_dest_pose);
