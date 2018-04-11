@@ -110,8 +110,11 @@ bool path_planner(const std::vector<float> &distances, const geometry_msgs::Pose
 		// GO TO DEST
 		// TODO: Handle infinity readings in rplidar
 		ROS_INFO("GOING DIRECTLY TO DEST");
-		result.pose.position.x = final_dest.pose.position.x;
-		result.pose.position.y = final_dest.pose.position.y;
+		// result.pose.position.x = final_dest.pose.position.x;
+		// result.pose.position.y = final_dest.pose.position.y;
+
+		result.pose.position.x = ((distances[index] > max_range) ? interval_size * std::sin(index * (M_PI/180.0f)) + curr_pose.pose.position.x : final_dest.pose.position.x);
+		result.pose.position.y = ((distances[index] > interval_size) ? -1.0f * interval_size * std::cos(index * (M_PI/180.0f)) + curr_pose.pose.position.y : final_dest.pose.position.y);
 	}
 	else if(distances[index] + ob_safety_buffer > dist_to_dest) {
 		// GO TO JUST BEFORE THE DEST
@@ -174,8 +177,11 @@ bool path_planner(const std::vector<float> &distances, const geometry_msgs::Pose
 		// result.pose.position.x = ((distances[temp_dest_index] > max_range) ? max_range * 2 : distances[temp_dest_index]) * std::sin(temp_dest_index * (M_PI/180.0f)) + curr_pose.pose.position.x;
 		// result.pose.position.y = ((distances[temp_dest_index] > max_range) ? max_range * 2 : distances[temp_dest_index]) * std::cos(temp_dest_index * (M_PI/180.0f)) + curr_pose.pose.position.y;
 
-		result.pose.position.x = ((distances[temp_dest_index] > interval_size) ? interval_size : distances[temp_dest_index]) * std::sin(temp_dest_index * (M_PI/180.0f)) + curr_pose.pose.position.x;
-		result.pose.position.y = -1.0f * ((distances[temp_dest_index] > interval_size) ? interval_size : distances[temp_dest_index]) * std::cos(temp_dest_index * (M_PI/180.0f)) + curr_pose.pose.position.y;
+		// result.pose.position.x = ((distances[temp_dest_index] > interval_size) ? interval_size : distances[temp_dest_index]) * std::sin(temp_dest_index * (M_PI/180.0f)) + curr_pose.pose.position.x;
+		// result.pose.position.y = -1.0f * ((distances[temp_dest_index] > interval_size) ? interval_size : distances[temp_dest_index]) * std::cos(temp_dest_index * (M_PI/180.0f)) + curr_pose.pose.position.y;
+
+		result.pose.position.x = ((distances[temp_dest_index] > max_range) ? interval_size : distances[temp_dest_index]) * std::sin(temp_dest_index * (M_PI/180.0f)) + curr_pose.pose.position.x;
+		result.pose.position.y = -1.0f * ((distances[temp_dest_index] > max_range) ? interval_size : distances[temp_dest_index]) * std::cos(temp_dest_index * (M_PI/180.0f)) + curr_pose.pose.position.y;
 	}
 	
 	return false;
@@ -188,8 +194,8 @@ int main(int argc, char **argv) {
 	// NodeHandle is the main access point to communications with the ROS system.
 	ros::NodeHandle nh;
 
-	nh.param<float>("max_obstacle_range", max_range, 5.0f);
-	nh.param<float>("obstacle_safety_buffer", ob_safety_buffer, 0.3f);
+	nh.param<float>("max_obstacle_range", max_range, 6.0f);
+	nh.param<float>("obstacle_safety_buffer", ob_safety_buffer, 1.0f);
 	nh.param<float>("size_of_bot", size_of_bot, 1.0f);
 	nh.param<float>("interval_size", interval_size, 1.0f);
 
