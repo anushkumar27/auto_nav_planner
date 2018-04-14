@@ -60,131 +60,125 @@ int get_rplidar_index(const geometry_msgs::PoseStamped &a, const geometry_msgs::
 	return deg + 90;
 }
 
-// Angles for left, right, up and down directions
-const int up_angle = 180;
-const int down_angle = 0;
-const int left_angle = 270;
-const int right_angle = 90;
+// Graph functions
+int l;
+int b;
+std::vector<std::vector<int>> graph;
 
-// Flags for left, right, up and down directions
-bool up_allowed = true;
-bool down_allowed = true;
-bool left_allowed = true;
-bool right_allowed = true;
+void enable_connections(std::vector<std::vector<int> > &graph, int l, int b, int node) {
+	// left
+	if(node % l != 1) {
+		graph[node - 1][node - 2] = 1;
+		graph[node - 2][node - 1] = 1;
+	}
+	// right
+	if(node % l != 0) {
+		graph[node - 1][node] = 1;
+		graph[node][node - 1] = 1;
+	}
+	// top
+	if(node <= l * (b-1)) {
+		graph[node - 1][node + l - 1] = 1;
+		graph[node + l - 1][node - 1] = 1;
+	}
+	// down
+	if(node > l) {
+		graph[node - 1][node - l - 1] = 1;
+		graph[node - l - 1][node - 1] = 1;
+	}
+}
+
+void disable_connections(std::vector<std::vector<int> > &graph, int l, int b, int node) {
+	for(int i = 0; i < graph[node - 1].size(); i++) {
+		graph[node - 1][i] = 0;
+		graph[i][node - 1] = 0;
+	}
+}
+
+void build_graph(const geometry_msgs::PoseStamped &dest, int &l, int &b) {
+	l = std::ceil(dest.pose.position.x);
+	b = std::ceil(dest.pose.position.y);
+	
+	int n = l * b;
+
+	for(int i = 0; i < n; i++) {
+		graph.push_back(std::vector<int>(n));
+	}
+
+	for(int i = 1; i <= n; i++) {
+		enable_connections(graph, l, b, i);
+	}
+}
+
+bool _is_visited(const std::map<int, int> &visited, int node) {
+	return visited.find(node) != visited.end();
+}
+
+void find_adjacent_nodes(const std::vector<std::vector<int> > &graph, const int node, const std::map<int, int> &visited, std::vector<int> &result) {
+	int n = graph[node - 1].size();
+	for(int i = 0; i < n; i++) {
+		if(graph[node - 1][i] == 1 && !_is_visited(visited, i + 1)) {
+			result.push_back(i + 1);
+		}
+	}
+}
+
+void find_path(const std::vector<std::vector<int> > &graph, const int start_node, const int end_node, std::vector<int> &path) {
+	std::map<int, int> visited;
+
+	visited[start_node] = -1;
+
+	std::vector<int> temp;
+
+	find_adjacent_nodes(graph, start_node, visited, temp);
+
+	std::queue<int> queue;
+	
+	for(auto e : temp) {
+		visited[e] = start_node;
+		queue.push(e);
+	}
+	temp.clear();
+
+	int prev_node = start_node;
+
+	while(queue.size() != 0) {
+		int curr_node = queue.front();
+		queue.pop();
+
+		find_adjacent_nodes(graph, curr_node, visited, temp);
+
+		for(int e : temp) {
+			visited[e] = curr_node;
+			queue.push(e);
+		}
+		temp.clear();
+		
+		if(curr_node == end_node) {
+			break;
+		}
+
+		prev_node = curr_node;
+	}
+
+	if(visited.find(end_node) != visited.end()) {
+		std::cout << "Wohhoo\n";
+		int temp_node = end_node;
+		path.push_back(temp_node);
+		while(temp_node != start_node) {
+			path.push_back(visited[temp_node]);
+			temp_node = visited[temp_node];
+		}
+		std::reverse(path.begin(), path.end());
+	}
+	else {
+		std::cout << "Shaata\n";
+	}
+}
 
 // The money function
 bool path_planner(const std::vector<float> &distances, const geometry_msgs::PoseStamped &final_dest, const geometry_msgs::PoseStamped &curr_pose, geometry_msgs::PoseStamped &result) {
-	
-	// Not checking for obstacles in z directions, directly going
-	result.pose.position.z = final_dest.pose.position.z;
 
-	// Takeoff first
-	if(std::fabs(curr_pose.pose.position.z - dest_pose.pose.position.z) > 0.1f) {
-		ROS_INFO("Adjust height");
-		result.pose.position.x = curr_pose.pose.position.x;
-		result.pose.position.y = curr_pose.pose.position.y;
-		return true;
-	}
-
-	// Check if final_dest == curr_pose
-	// Should be within half of size of quad
-	if(dist_bw_points(curr_pose, final_dest) <= size_of_bot * 0.5) {
-		ROS_INFO("Reached destination [%f %f %f]", curr_pose.pose.position.x, curr_pose.pose.position.y, curr_pose.pose.position.z);
-		result.pose.position.x = final_dest.pose.position.x;
-		result.pose.position.y = final_dest.pose.position.y;
-		return true;
-	}
-
-	// 1. Find dist to dest from curr_pose
-	float dist_to_dest = dist_bw_points(curr_pose, final_dest);
-
-	// 2. Find index of rplidar reading to final dest direction
-	int index = get_rplidar_index(curr_pose, final_dest);
-
-	ROS_INFO("dist_to_dest = %f", dist_to_dest);
-	ROS_INFO("index_to_dest = %d", index);
-	ROS_INFO("dist_to_obs = %f", distances[index]);
-
-	// 3. Compare
-	if(distances[index] > dist_to_dest) {
-		// GO TO DEST
-		// TODO: Handle infinity readings in rplidar
-		ROS_INFO("GOING DIRECTLY TO DEST");
-		// result.pose.position.x = final_dest.pose.position.x;
-		// result.pose.position.y = final_dest.pose.position.y;
-
-		result.pose.position.x = ((distances[index] > max_range) ? interval_size * std::sin(index * (M_PI/180.0f)) + curr_pose.pose.position.x : final_dest.pose.position.x);
-		result.pose.position.y = ((distances[index] > interval_size) ? -1.0f * interval_size * std::cos(index * (M_PI/180.0f)) + curr_pose.pose.position.y : final_dest.pose.position.y);
-	}
-	else if(distances[index] + ob_safety_buffer > dist_to_dest) {
-		// GO TO JUST BEFORE THE DEST
-		// TODO: Review
-		// TODO: Add handling for safety buffer
-		result.pose.position.x = final_dest.pose.position.x;
-		result.pose.position.y = final_dest.pose.position.y;
-	}
-	else {
-		// DO PATH PLANNING
-		// TODO: Make efficient, review
-		// TODO: Handle the case where drone is very close to obstacle
-		std::vector<float> distances_temp(distances);
-		for(int i = 0; i < 360; ++i) {
-			if(!( (i == up_angle && up_allowed) || 
-				(i == down_angle && down_allowed) || 
-				(i == left_angle && left_allowed) || 
-				(i == right_angle && right_allowed) )) {
-				distances_temp[i] = 0;
-			}
-		}
-		auto temp_dest_ray = std::max_element(distances_temp.begin(), distances_temp.end());
-		int temp_dest_index = temp_dest_ray - distances_temp.begin();
-		if(temp_dest_index == up_angle) {
-			ROS_ERROR("Choosing up!");
-			up_allowed = true;
-			down_allowed = false;
-			left_allowed = true;
-			right_allowed = true;
-		}
-		else if(temp_dest_index == down_angle) {
-			ROS_ERROR("Choosing down!");
-			up_allowed = false;
-			down_allowed = true;
-			left_allowed = true;
-			right_allowed = true;
-		}
-		else if(temp_dest_index == left_angle) {
-			ROS_ERROR("Choosing left!");
-			up_allowed = true;
-			down_allowed = true;
-			left_allowed = true;
-			right_allowed = false;
-		}
-		else if(temp_dest_index == right_angle) {
-			ROS_ERROR("Choosing right!");
-			up_allowed = true;
-			down_allowed = true;
-			left_allowed = false;
-			right_allowed = true;
-		}
-		else {
-			ROS_ERROR("temp_dest_index not one of allowed values");
-			exit(1);
-		}
-
-		// Complex ternary is to protect against multiplying by inf
-		// TODO: Clean up
-		// if(distances[temp_dest_index] > max_range) infinity_case_index = temp_dest_index;
-		// result.pose.position.x = ((distances[temp_dest_index] > max_range) ? max_range * 2 : distances[temp_dest_index]) * std::sin(temp_dest_index * (M_PI/180.0f)) + curr_pose.pose.position.x;
-		// result.pose.position.y = ((distances[temp_dest_index] > max_range) ? max_range * 2 : distances[temp_dest_index]) * std::cos(temp_dest_index * (M_PI/180.0f)) + curr_pose.pose.position.y;
-
-		// result.pose.position.x = ((distances[temp_dest_index] > interval_size) ? interval_size : distances[temp_dest_index]) * std::sin(temp_dest_index * (M_PI/180.0f)) + curr_pose.pose.position.x;
-		// result.pose.position.y = -1.0f * ((distances[temp_dest_index] > interval_size) ? interval_size : distances[temp_dest_index]) * std::cos(temp_dest_index * (M_PI/180.0f)) + curr_pose.pose.position.y;
-
-		result.pose.position.x = ((distances[temp_dest_index] > max_range) ? interval_size : distances[temp_dest_index]) * std::sin(temp_dest_index * (M_PI/180.0f)) + curr_pose.pose.position.x;
-		result.pose.position.y = -1.0f * ((distances[temp_dest_index] > max_range) ? interval_size : distances[temp_dest_index]) * std::cos(temp_dest_index * (M_PI/180.0f)) + curr_pose.pose.position.y;
-	}
-	
-	return false;
 }
 
 int main(int argc, char **argv) {   
@@ -197,7 +191,7 @@ int main(int argc, char **argv) {
 	nh.param<float>("max_obstacle_range", max_range, 6.0f);
 	nh.param<float>("obstacle_safety_buffer", ob_safety_buffer, 1.0f);
 	nh.param<float>("size_of_bot", size_of_bot, 1.0f);
-	nh.param<float>("interval_size", interval_size, 1.0f);
+	nh.param<float>("interval_size", interval_size, 0.5f);
 
 	// SUBSCRIBER
 	// To fetch the RPLidar data
@@ -225,29 +219,6 @@ int main(int argc, char **argv) {
 
 	std::vector<float> distances(360);
 	std::fill(distances.begin(), distances.end(), std::numeric_limits<float>::infinity());
-	
-	// Launch Order:
-	// 1. Gazebo
-	//		1.1 Quad IMU
-	//		1.2 Optical Flow
-	// 		1.3 RPLidar
-	// 2. OA
-	//		2.1 Publish filtered lidar data
-	// 3. Planner
-	// 4. Bridge
-	//		4.1 Wait for dest - wil not arm or mode switch
-	// 		4.2 Arm and Switch Mode -> After receiving dest
-	
-	// TODO: 
-	// 1. Add loop to buffer the distance(rplidar) for 5 seconds
-	// 2. Add a global param to store the size of the quad, to decide reached or not
-	// 3. Add a global param to safety boundary around the obstacle (OA)
-
-	// Pre-Checks:
-	// 1. RPLidar Data
-	//		1.1. Take-off only if there is a free path
-	// 2. Commander Data (Bridge)
-	// 		wait for data
 
 	// Check for critical data
 	while(ros::ok()) {
@@ -262,28 +233,21 @@ int main(int argc, char **argv) {
 		rate.sleep();
 	}
 
-	// Get initial point to go to
-	path_planner(distances, dest_pose, curr_pose, temp_dest_pose);
+	// Initialise graph
+	build_graph(dest_pose, l, b);
+
 	while(ros::ok()) {
 
 		// Get temp destination to go to (path planning)
-		// ROS_INFO("Dist to temp dest: %f", dist_bw_points(curr_pose, temp_dest_pose));
-		// ROS_INFO("Target pos: [%f %f %f]", dest_pose.pose.position.x, dest_pose.pose.position.y, dest_pose.pose.position.z);
-		// ROS_INFO("Curr pos: [%f %f %f]", curr_pose.pose.position.x, curr_pose.pose.position.y, curr_pose.pose.position.z);
-		// ROS_INFO("Publishing [%f %f %f]", temp_dest_pose.pose.position.x, temp_dest_pose.pose.position.y, temp_dest_pose.pose.position.z);
-
-		if(dist_bw_points(curr_pose, temp_dest_pose) > size_of_bot * 0.5) {
-			// Send command to bridge
-			// ROS_INFO("Publishing [%f %f %f]", temp_dest_pose.pose.position.x, temp_dest_pose.pose.position.y, temp_dest_pose.pose.position.z);
-			pos_pub.publish(temp_dest_pose);
-		}
-		else {
-			// ROS_INFO("Taking new point");
-			path_planner(distances, dest_pose, curr_pose, temp_dest_pose);
-			pos_pub.publish(temp_dest_pose);
-		}
-
-		// ROS_INFO(" ");
+		ROS_INFO("Dist to temp dest: %f", dist_bw_points(curr_pose, temp_dest_pose));
+		ROS_INFO("Target pos: [%f %f %f]", dest_pose.pose.position.x, dest_pose.pose.position.y, dest_pose.pose.position.z);
+		ROS_INFO("Curr pos: [%f %f %f]", curr_pose.pose.position.x, curr_pose.pose.position.y, curr_pose.pose.position.z);
+		ROS_INFO("Publishing [%f %f %f]", temp_dest_pose.pose.position.x, temp_dest_pose.pose.position.y, temp_dest_pose.pose.position.z);
+		
+		path_planner(distances, dest_pose, curr_pose, temp_dest_pose);
+		pos_pub.publish(temp_dest_pose);
+	
+		ROS_INFO(" ");
 
 		if(!oa_data.data.empty()) distances = std::move(oa_data.data);
 		ros::spinOnce();
