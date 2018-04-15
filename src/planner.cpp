@@ -7,8 +7,11 @@
 #include <std_msgs/Float32MultiArray.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <vector>
+#include <queue>
 #include <cmath>
 #include <algorithm>
+
+#include <iostream>
 
 // Constants
 float ob_safety_buffer;
@@ -61,9 +64,31 @@ int get_rplidar_index(const geometry_msgs::PoseStamped &a, const geometry_msgs::
 }
 
 // Graph functions
+
+// All global variables
+// Horrible coding I know, give me a break pls
 int l;
 int b;
 std::vector<std::vector<int>> graph;
+// std::vector<int> path_to_follow;
+
+int cart_to_index(const geometry_msgs::PoseStamped &pos, int l) {
+	return std::floor(std::abs(pos.pose.position.x)) + 1 + std::floor(std::abs(pos.pose.position.y)) * 6;
+}
+
+void index_to_cart(int index, int l, geometry_msgs::PoseStamped &result) {
+	result.pose.position.x = ((index - 1) % l) + 0.5;
+	result.pose.position.y = (index - 1) / l + 0.5;
+}
+
+int cart_to_index(float x, float y, int l) {
+	return std::floor(std::abs(x)) + 1 + std::floor(std::abs(y)) * 6;
+}
+
+void index_to_cart(int index, int l, float &x, float &y) {
+	x = ((index - 1) % l) + 0.5;
+	y = (index - 1) / l + 0.5;
+}
 
 void enable_connections(std::vector<std::vector<int> > &graph, int l, int b, int node) {
 	// left
@@ -88,7 +113,7 @@ void enable_connections(std::vector<std::vector<int> > &graph, int l, int b, int
 	}
 }
 
-void disable_connections(std::vector<std::vector<int> > &graph, int l, int b, int node) {
+void disable_connections(std::vector<std::vector<int> > &graph, int node) {
 	for(int i = 0; i < graph[node - 1].size(); i++) {
 		graph[node - 1][i] = 0;
 		graph[i][node - 1] = 0;
@@ -176,9 +201,84 @@ void find_path(const std::vector<std::vector<int> > &graph, const int start_node
 	}
 }
 
+void map_obstacles(std::vector<std::vector<int> > &graph, const geometry_msgs::PoseStamped &curr_pose, int l, int b, const std::vector<float> &distances) {
+	if(!distances.empty()) {
+		std::cout << "Disable indexes: ";
+		for(int i = 0; i < 360; i++) {
+			float d = distances[i];
+			float tempx = curr_pose.pose.position.x + d * std::sin(i * (M_PI/180));
+			float tempy = curr_pose.pose.position.y + -1.0f * (d * std::cos(i * (M_PI/180)));
+
+			if(tempx > 6 || tempx < 0 || tempy > 6 || tempy < 0) {
+				// Obstacle is beyond bounds
+				continue;
+			}
+
+			int obindex = cart_to_index(tempx, tempy, l);
+
+			disable_connections(graph, obindex);
+
+			// std::cout << obindex << ":" << d << ":" << i << ", ";
+			std::cout << obindex << ", ";
+		}
+		std::cout << "\n";
+	}
+}
+
 // The money function
 bool path_planner(const std::vector<float> &distances, const geometry_msgs::PoseStamped &final_dest, const geometry_msgs::PoseStamped &curr_pose, geometry_msgs::PoseStamped &result) {
+	int curr_index = cart_to_index(curr_pose, l);
+	if(curr_index < 1) curr_index = 1;
+	int dest_index = cart_to_index(final_dest, l);
+	
+	if(curr_index == dest_index) {
+		result.pose.position.x = final_dest.pose.position.x;
+		result.pose.position.y = final_dest.pose.position.y;
+		return true;
+	}
+	
+	std::cout << "curr_index: " <<  curr_index << "\n";
+	std::cout << "dest_index: " << dest_index << "\n";
 
+	// Map all obstacles
+	map_obstacles(graph, curr_pose, l, b, distances);
+
+	// Enable connections for curr_index since I am already at curr_index, therefore
+	// it is possible to move to other places
+	enable_connections(graph, l, b, curr_index);
+
+	// std::cout << "GRAPH: \n";
+	// for(auto e1 : graph) {
+	// 	for(auto e2 : e1) {
+	// 		std::cout << e2 << " ";
+	// 	}
+	// 	std::cout << std::endl;
+	// }
+	// std::cout << std::endl;
+
+	if(std::abs(curr_pose.pose.position.z - final_dest.pose.position.z) > 0.2f) {
+		result.pose.position.x = curr_pose.pose.position.x;
+		result.pose.position.y = curr_pose.pose.position.y;
+		result.pose.position.z = final_dest.pose.position.z;
+		return true;
+	}
+
+	std::vector<int> path;
+	find_path(graph, curr_index, dest_index, path);
+	std::cout << "PATH: \n";
+	for(auto e : path) {
+		std::cout << e << " --> ";
+	}
+	std::cout << "\n";
+	if(!path.empty()) {
+		std::cout << "NEXT: " << path[1] << "\n";
+		index_to_cart(path[1], l, result);
+		result.pose.position.z = final_dest.pose.position.z;
+		return true;
+	}
+	else {
+		return false;
+	}
 }
 
 int main(int argc, char **argv) {   
@@ -234,24 +334,45 @@ int main(int argc, char **argv) {
 	}
 
 	// Initialise graph
+	// build_graph(dest_pose, l, b);
+
+	// TEMP
+	// Put imaginary obstacles
+	dest_pose.pose.position.x = 5.6;
+	dest_pose.pose.position.y = 5.6;
 	build_graph(dest_pose, l, b);
 
-	while(ros::ok()) {
+	// int temp[] = {13,14,15,26,27,28,29,30};//,    4, 5,6};
+	// for(auto e1 : temp)
+	// 	disable_connections(graph, e1);
 
-		// Get temp destination to go to (path planning)
-		ROS_INFO("Dist to temp dest: %f", dist_bw_points(curr_pose, temp_dest_pose));
-		ROS_INFO("Target pos: [%f %f %f]", dest_pose.pose.position.x, dest_pose.pose.position.y, dest_pose.pose.position.z);
-		ROS_INFO("Curr pos: [%f %f %f]", curr_pose.pose.position.x, curr_pose.pose.position.y, curr_pose.pose.position.z);
-		ROS_INFO("Publishing [%f %f %f]", temp_dest_pose.pose.position.x, temp_dest_pose.pose.position.y, temp_dest_pose.pose.position.z);
-		
-		path_planner(distances, dest_pose, curr_pose, temp_dest_pose);
-		pos_pub.publish(temp_dest_pose);
-	
-		ROS_INFO(" ");
+	path_planner(distances, dest_pose, curr_pose, temp_dest_pose);
+
+	while(ros::ok()) { 
+		if(dist_bw_points(curr_pose, temp_dest_pose) > 0.2f) {
+			pos_pub.publish(temp_dest_pose);
+		}
+		else {
+			if(path_planner(distances, dest_pose, curr_pose, temp_dest_pose)) {
+				ROS_INFO("Dist to temp dest: %f", dist_bw_points(curr_pose, temp_dest_pose));
+				ROS_INFO("Target pos: [%f %f %f]", dest_pose.pose.position.x, dest_pose.pose.position.y, dest_pose.pose.position.z);
+				ROS_INFO("Curr pos: [%f %f %f]", curr_pose.pose.position.x, curr_pose.pose.position.y, curr_pose.pose.position.z);
+				ROS_INFO("Publishing [%f %f %f]", temp_dest_pose.pose.position.x, temp_dest_pose.pose.position.y, temp_dest_pose.pose.position.z);
+				ROS_INFO(" ");		
+				pos_pub.publish(temp_dest_pose);
+			}
+			else {
+				ROS_ERROR("No path is possible to destination.");
+			}
+		}
 
 		if(!oa_data.data.empty()) distances = std::move(oa_data.data);
 		ros::spinOnce();
 		rate.sleep();
+
+		// TEMP
+		dest_pose.pose.position.x = 5.6;
+		dest_pose.pose.position.y = 5.6;
 	}
 
 	return 0;

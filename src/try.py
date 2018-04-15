@@ -1,4 +1,11 @@
 from math import ceil
+from math import floor
+
+def cart_to_index(x, y, l):
+	return floor(x) + 1 + 6 * floor(y)
+
+def index_to_cart(index, l):
+	return ((index % l) - 1, (index - 1) // l)
 
 def enable_connections(graph, l, b, node):
 	# left
@@ -123,14 +130,18 @@ def print_graph(graph):
 
 # 	print('path', path)
 
+# if __name__ == "__main__":
+# 	l, b, graph = build_graph((5.6,5.6))
+# 	# print_graph(graph)
+# 	for i in [13,14,15,26,27,28,29,30]:
+# 		disable_connections(graph, i)
+# 	# disable_connections(graph, l, b, 1)
+# 	# print_graph(graph)
+
+# 	path = find_path(graph, 6, 36)
+
+# 	print('path', path)
+
 if __name__ == "__main__":
-	l, b, graph = build_graph((5.6,5.6))
-	# print_graph(graph)
-	for i in [13,14,15,26,27,28,29,30]:
-		disable_connections(graph, i)
-	# disable_connections(graph, l, b, 1)
-	# print_graph(graph)
-
-	path = find_path(graph, 6, 36)
-
-	print('path', path)
+	print(cart_to_index(2.1, 1.3, 6))
+	print(index_to_cart(9, 6))
