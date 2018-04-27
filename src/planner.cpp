@@ -187,7 +187,7 @@ void find_path(const std::vector<std::vector<int> > &graph, const int start_node
 	}
 
 	if(visited.find(end_node) != visited.end()) {
-		std::cout << "Wohhoo\n";
+		std::cout << "PATH POSSIBLE\n";
 		int temp_node = end_node;
 		path.push_back(temp_node);
 		while(temp_node != start_node) {
@@ -197,7 +197,7 @@ void find_path(const std::vector<std::vector<int> > &graph, const int start_node
 		std::reverse(path.begin(), path.end());
 	}
 	else {
-		std::cout << "Shaata\n";
+		std::cout << "NO PATH\n";
 	}
 }
 
