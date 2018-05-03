@@ -1,5 +1,5 @@
 # Auto_Nav_Planner
-Planner node is responsible for Dynamic Path Planning (DPP) and visualising
+Planner module is responsible for Dynamic Path Planning (DPP).
 
 ## Description
 This module/node is responsible for taking input from the user via the ROS Framework’s 
