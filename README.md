@@ -1,4 +1,4 @@
-# auto_nav_planner
+# Auto_Nav_Planner
 Planner node is responsible for Dynamic Path Planning (DPP) and visualising
 
 ## Description
